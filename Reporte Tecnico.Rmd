@@ -1,0 +1,758 @@
+---
+title: "Trabajo Accidentalidad en Medellín"
+author: "Juan Ortiz-Paul Escobar-Stephanny Gloria-Eliana Castaño"
+date: "3 de Septiembre de 2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+## **Introducción**
+
+Los accidentes viales representan un serio problema de salud pública, en un estudio realizado por la OMS en conjunto con el Banco Mundial, aparecen como la séptima causa de morbilidad en el planeta, las cifras muestran que en el mundo, más de 1.25 millones de personas fallece cada año en las vías y además generan un alto costo para las naciones.
+
+Los accidente de transito se originan por condiciones del vehículo (factor mecánico), ambientales (factor climático) y en gran medida por factores humanos.
+
+Se ha identificado que el factor humano está relacionado a más del 90% de los accidentes de tránsito. Las percepciones de la población sobre la causalidad de éstos, refleja que son debido a la irresponsabilidad de los conductores donde el alcohol, falta de respeto por las señales de tránsito, exceso de velocidad, uso de móviles, entre otros, son factores que desencadenan los accidentes; por otro lado, los peatones también son percibidos como responsables.
+
+Hay varias formas de enfrentar dicha problemática, por ejemplo los programas de educación y respeto por las normas de tránsito y la disposición de la tecnología para el mejoramiento preventivo no sólo a partir de la mejora de los vehículos, sino también, del aprovechamiento de los grandes conjuntos de datos que proveen los datos abiertos, con el fin de estimular decisiones más oportunas e informadas.
+
+
+## **Situación en Medellín**
+La alta accidentalidad en Medellín se ha convertido en un problema de salud pública, por ejemplo, en 2017 y 2018 murieron 254 y 314 personas respectivamente por incidentes de tránsito, además continúa en la cabeza de las ciudades con más accidentes de tránsito en el país, a pesar de la reducción de las cifras en los últimos tres años, lo que significa que se deben reforzar las acciones que se están realizando en esta materia.
+En Medellín se ha aumentado la señalización, la contratación con la agencia nacional de seguridad vial, medidores de velocidad, pero se siguen presentados accidentes, en mayor cantidad por motociclistas y peatones. En el caso de los peatones se evidencia que más de la mitad de los sucesos se ve involucrado un motoclista por atropello.
+En estudios previos por la secretaria de tránsito, se señala que muchos de los accidentes se presentan en barrios residenciales y se atribuye a que los motociclistas no utilizan la indumentaria adecuada para la prevención de estos accidentes.
+Esta problemática también afecta la calidad del aire de la ciudad, por cada incidente se congestionan las vías por una hora aproximadamente, lo cual genera mayor carburación de los vehículos que se encuentran allí, causando altas emisiones de dióxido de carbono que a su vez generan más contaminación ambiental.
+
+## **Objetivo**
+
+Crear un modelo que permita predecir la accidentalidad en Medellín por tipo de accidente a nivel diario, semanal y mensual.
+
+Realizar un agrupamiento de los barrios de Medellín de acuerdo a su accidentalidad.
+
+Crear un aplicación web que permita a los usuarios finales visualizar los datos históricos y hallazgos de valor en los datos, calcular prediciones de los accidentes diarios, semanales y mensuales y finalmente que permita visualizar en un mapa una agrupación de los barrios de Medellín de acuerdo a su accidentalidad.
+
+
+## **Datos**
+
+Los datos se obtuvieron de la página de Open Data de la alcaldía de Medellín: [https://geomedellin-m-medellin.opendata.arcgis.com/].
+Se usaran los datos de los años 2014, 2015, 2016, 2017 para el entrenamiento y 2018 para la validación de los modelos propuestos. Para cada año se tiene la siguiente información:
+
+* Coordenadas del accidente.
+* Radicado.
+* Fecha.
+* Hora.
+* Dia.
+* Periodo.
+* Clase de accidente.
+* Dirección del accidente.
+* Tipo Geográfico del suceso.
+* Gravedad. 
+* Barrio.
+* Comuna.
+* Diseño de la vía.
+
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+library(seriation)
+library(cluster)
+library(TSP)
+library(gclus)
+library(grid)
+library(colorspace)
+library(MASS)
+library(mclust)
+library(flexmix)
+library(lattice)
+library(dummies)
+library(fpc)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(reshape2)
+library(rgdal)
+library(leaflet)
+library(plyr)
+library(party)
+library(DT)
+library(ggplot2)
+library(raster)
+library(sp)
+library(ggfortify)
+library(plotly)
+library(randomForest)
+library(e1071)
+library(h2o)
+```
+
+# **1. Analisis descriptivo**
+
+En el análisis descriptivo y exploratorio de los datos se realizaron gráficos que permiten observar el comportamiento de las variables y posibles relaciones entre éstas.
+
+### **Lectura datos**
+
+Se leen los datos
+```{r echo=TRUE}
+D2014<-read.csv("Accidentalidad_georreferenciada_2014.csv")
+D2015<-read.csv("Accidentalidad_georreferenciada_2015.csv")
+D2016<-read.csv("Accidentalidad_georreferenciada_2016.csv")
+D2017<-read.csv("Accidentalidad_georreferenciada_2017.csv")
+D2018<-read.csv("Accidentalidad_georreferenciada_2018.csv")
+```
+
+
+```{r echo=TRUE}
+d<-rbind(D2014,D2015,D2016,D2017,D2018)
+head(d)
+```
+
+
+```{r echo=FALSE}
+####Limpieza datos
+
+d<-rbind(D2014,D2015,D2016,D2017,D2018)
+    
+    d$BARRIO=iconv(d$BARRIO,"UTF-8","ISO_8859-1")
+    d$BARRIO<-as.factor(d$BARRIO)
+    
+    d$CLASE=iconv(d$CLASE,"UTF-8","ISO_8859-1")
+    d$CLASE<-as.factor(d$CLASE)
+    d$CLASE <- gsub("Caida de Ocupante", "Caida Ocupante",d$CLASE)
+    d$CLASE <- gsub("Caída de Ocupante", "Caida Ocupante", d$CLASE)
+    d$CLASE <- gsub("Caída Ocupante", "Caida Ocupante", d$CLASE)
+    d$CLASE <- gsub("Choque y Atropello", "Otro", d$CLASE)
+    d$CLASE <- gsub("Incendio", "Otro", d$CLASE)
+    d$CLASE <- gsub("Choque ", "Choque", d$CLASE)
+    
+
+    d$CLASE <-case_when( d$CLASE=="Caida Ocupante" ~ "Caida Ocupante",
+                         d$CLASE=="Choque" ~ "Choque",
+                         d$CLASE=="Atropello" ~ "Atropello",
+                         d$CLASE=="Volcamiento" ~ "Volcamiento",
+                         d$CLASE=="Otro" ~ "Otro",
+                         TRUE ~ "Otro")
+    
+    
+    d$CLASE<-as.factor(d$CLASE)
+    
+    
+    d$TIPO_GEOCOD=iconv(d$TIPO_GEOCOD,"UTF-8","ISO_8859-1")
+    d$TIPO_GEOCOD<-as.factor(d$TIPO_GEOCOD)
+    
+    d$GRAVEDAD=iconv(d$GRAVEDAD,"UTF-8","ISO_8859-1")
+    d$GRAVEDAD<-as.factor(d$GRAVEDAD)
+    
+    
+    d$COMUNA=iconv(d$COMUNA,"UTF-8","ISO_8859-1")
+    d$COMUNA<-as.factor(d$COMUNA)
+    
+    
+    d$DISENO=iconv(d$DISENO,"UTF-8","ISO_8859-1")
+    d$DISENO<-as.factor(d$DISENO)
+    
+    d$MES<-as.factor(d$MES)
+    d$DIA<-as.factor(d$DIA)
+    d$PERIODO<-as.factor(d$PERIODO)
+    
+    d$CANTIDAD<-(c(1))
+    d$CANTIDAD<-as.integer(d$CANTIDAD)
+    
+    d<-d[,c(7,8,9,13,14,15,16,17,18,19,25)]
+    
+    d$DIA_NOMBRE <-case_when( d$DIA_NOMBRE=="LUNES    " ~ "LUNES",
+                              d$DIA_NOMBRE=="MARTES   " ~ "MARTES",
+                              d$DIA_NOMBRE=="MIÃ‰RCOLES" ~ "MIERCOLES",
+                              d$DIA_NOMBRE=="JUEVES   " ~ "JUEVES",
+                              d$DIA_NOMBRE=="VIERNES  " ~ "VIERNES",
+                              d$DIA_NOMBRE=="SÃ\u0081BADO   " ~ "SABADO",
+                              d$DIA_NOMBRE=="DOMINGO  " ~ "DOMINGO",
+                              TRUE ~ "raro")
+    d$DIA_NOMBRE<-as.factor(d$DIA_NOMBRE)
+    
+    d$DIA_NOMBRE<-factor(d$DIA_NOMBRE,levels=levels(d$DIA_NOMBRE)[c(3,4,5,2,7,6,1)])
+    
+    #summary(d)
+```
+
+
+Se consolida la información en una sóla base de datos y se realizan cambios de formatos, se agrega la variable cantidad que indica la cantidad o número de accidentes. Además se realiza homologación a la variable clase (los incendios y N/A se agregan a la clase Otro), se obtienen 5 clases:
+
+* Choque
+* Atropello
+* Caida ocupante
+* Otro
+* volcamientos
+
+
+
+## **Análisis gráficos**
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+
+  qplot(PERIODO,data=d,
+        main="Accidentes por año (2014-2018)",
+        ylab = "Número de accidentes", 
+        xlab="Año") + geom_bar(aes(fill=PERIODO),
+                                              position=position_dodge(),show.legend = FALSE)+
+    stat_count(geom = "text",aes(label=..count..,group=PERIODO,vjust=-0.3))
+```
+
+Se observa que el número de accidentes por año es casi constante, sin embargo en el año 2018 disminuyeron en un 6% respecto a 2017.
+
+
+
+```{r echo=FALSE}
+aggregate(CANTIDAD~PERIODO*MES,data=d,FUN=sum)%>%
+  plot_ly(x = ~MES,
+         y = ~CANTIDAD,
+         type = "scatter" ,mode = "lines+markers",
+         split = ~PERIODO,
+         line=list(width=2))%>%
+  layout(title='Accidentes por mes y año (2014-2018)',
+         xaxis=list(title="Mes"),
+         yaxis=list(title="Número de Accidentes"))
+```
+
+A partir de ésta gráfica se observa que en los meses de marzo, mayo y agosto en la mayoría de años se presentan picos de accidentalidad y tiende a haber diminuciones en los meses de enero, abril, junio y noviembre. Siendo enero el mes con menor número de casos. En el 2016 se observan varios picos que no se presentaron en los otros años.
+
+
+
+```{r echo=FALSE}
+
+  qplot(CLASE,data=d,
+        main="Accidentes por clase (2014-2018)",
+        ylab = "Número de accidentes", 
+        xlab="Clase de accidentes") + geom_bar(aes(fill=CLASE),
+                                              position=position_dodge(),show.legend = FALSE)+
+    stat_count(geom = "text",aes(label=..count..,group=CLASE,vjust=-0.3))
+```
+```{r echo=FALSE}
+tabla<-table(d$CLASE)
+tablap<-(prop.table(tabla)*100)
+head(tablap)
+```
+
+
+Se puede notar que el tipo de accidente más frecuente es el choque con un total de 152436 casos representado un 67% de los casos.
+
+
+
+```{r echo=FALSE}
+    ggplot(d,aes(x=DIA_NOMBRE,fill=CLASE))+geom_bar()+
+      stat_count(geom = "text",aes(label=..count..,group=CLASE,vjust=0.7))+
+      ggtitle("Clase de accidente según el día (2014-2018)")
+```
+
+Se observa que el día en el que ocurren mas accidentes es el viernes seguido del martes, el día con menos accidentes es el domingo y la clase que domina en todo los días es el choque.
+
+
+
+```{r echo=FALSE}
+
+  qplot(GRAVEDAD,data=d,
+        main="Accidentes por gravedad (2014-2018)",
+        ylab = "Número de accidentes", 
+        xlab="Gravedad") + geom_bar(aes(fill=GRAVEDAD),
+                                              position=position_dodge(),show.legend = FALSE)+
+    stat_count(geom = "text",aes(label=..count..,group=GRAVEDAD,vjust=-0.3))
+```
+```{r echo=FALSE}
+tabla1<-table(d$GRAVEDAD)
+tablap1<-(prop.table(tabla1)*100)
+head(tablap1)
+```
+
+
+En el periodo de tiempo estudiado (2014-2018), la gravedad del accidente más frecuente es herido con 126222 casos (55%), seguido de sólo daños con 101097 (44%) y muerto con 1374 (0.6%).
+
+
+
+```{r echo=FALSE}
+  ggplot(d,ylab="num",aes(x=CLASE,fill=GRAVEDAD))+geom_bar()+
+      stat_count(geom = "text",aes(label=..count..,group=CLASE,vjust=-0.4))+
+      ggtitle("Clase de accidente según gravedad")  
+```
+
+En la clase choque predomina la gravedad del accidente en el que hay sólo daños y los heridos, en el resto de clases predominan los heridos.Es de resaltar que los muertos en la clase de accidente atropello representan un 3%.
+
+
+
+```{r echo=FALSE}
+  ggplot(d,aes(x=CLASE,fill=DISENO))+geom_bar()+
+      stat_count(geom = "text",aes(label=..count..,group=CLASE,vjust=-0.4))+
+      ggtitle("Clase de accidente según diseño de la vía")  
+   
+```
+
+Se observa que en todas las clases predominan los accidentes en tramos de vía seguido de las intersecciones.
+
+
+
+# **2. Agrupamiento**
+
+El objetivo es clasificar los barrios por su accidentalidad, para esto se un hizo un modelo de Clusterización K-means.
+Las variables que se consideraron para construir la segmentación fueron, el día de la semana y el mes donde se presenta el suceso, la clase de accidente, la gravedad del accidente, el diseño de la vía y por último la comuna. Después de realizar las debidas validaciones de esta segmentación se decidió tomar un total de 5 clúster donde se verán reflejadas las características de cada uno de los K-Cluster.
+
+
+
+```{r echo=FALSE}
+######Se definen los datos de entrenamiento, se realizan homologaciones y cambios de formatos a las variables de interés.
+
+###### concatenación de los datos
+entrenamientomod<-rbind(D2014,D2015,D2016,D2017)
+fechaEspecial<-read.csv("Fechas_Especiales.csv",sep=",",header = TRUE)
+
+entrenamientomod$FECHA <- as.Date(entrenamientomod$FECHA)
+fechaEspecial$FECHA <- as.Date(fechaEspecial$FECHA)
+D2018$FECHA <- as.Date(D2018$FECHA)
+
+entrenamientomod$MES<-as.factor(entrenamientomod$MES)
+entrenamientomod$DIA<-as.factor(entrenamientomod$DIA)
+entrenamientomod$GRAVEDAD=iconv(entrenamientomod$GRAVEDAD,"UTF-8","ISO_8859-1")
+
+###nombre del dia 
+entrenamientomod$DIA_NOMBRE <-case_when( entrenamientomod$DIA_NOMBRE=="LUNES    " ~ "LUNES",
+                                         entrenamientomod$DIA_NOMBRE=="MARTES   " ~ "MARTES",
+                                         entrenamientomod$DIA_NOMBRE=="MIÃ???RCOLES" ~ "MIERCOLES",
+                                         entrenamientomod$DIA_NOMBRE=="JUEVES   " ~ "JUEVES",
+                                         entrenamientomod$DIA_NOMBRE=="VIERNES  " ~ "VIERNES",
+                                         entrenamientomod$DIA_NOMBRE=="SÃ\u0081BADO   " ~ "SABADO",
+                                         entrenamientomod$DIA_NOMBRE=="DOMINGO  " ~ "DOMINGO",
+                                         TRUE ~ "raro")
+entrenamientomod$DIA_NOMBRE<-as.factor(entrenamientomod$DIA_NOMBRE)
+###nombre del mes 
+entrenamientomod$MES <-case_when( entrenamientomod$MES=="1" ~ "ENERO",
+                                  entrenamientomod$MES=="2" ~ "FEBRERO",
+                                  entrenamientomod$MES=="3" ~ "MARZO",
+                                  entrenamientomod$MES=="4" ~ "ABRIL",
+                                  entrenamientomod$MES=="5" ~ "MAYO",
+                                  entrenamientomod$MES=="6" ~ "JUNIO",
+                                  entrenamientomod$MES=="7" ~ "JULIO",
+                                  entrenamientomod$MES=="8" ~ "AGOSTO",
+                                  entrenamientomod$MES=="9" ~ "SEPTIEMBRE",
+                                  entrenamientomod$MES=="10" ~ "OCTUBRE",
+                                  entrenamientomod$MES=="11" ~ "NOVIEMBRE",
+                                  entrenamientomod$MES=="12" ~ "DICIEMBRE",
+                                  TRUE ~ "raro")
+entrenamientomod$MES<-as.factor(entrenamientomod$MES)
+
+###### clase
+entrenamientomod$CLASE <-case_when( entrenamientomod$CLASE=="Atropello" ~ "Atropello",
+                                    entrenamientomod$CLASE=="CaÃ???da de Ocupante" ~ "Caida de Ocupante",
+                                    entrenamientomod$CLASE=="Choque" ~ "Choque",
+                                    entrenamientomod$CLASE=="Incendio" ~ "Incendio",
+                                    entrenamientomod$CLASE=="Otro" ~ "Otros",
+                                    entrenamientomod$CLASE=="Volcamiento" ~ "Volcamiento",
+                                    entrenamientomod$CLASE=="Caida de Ocupante" ~ "Caida de Ocupante",
+                                    entrenamientomod$CLASE=="Caida Ocupante" ~ "Caida de Ocupante",
+                                    entrenamientomod$CLASE=="CaÃ???da Ocupante" ~ "Caida de Ocupante",
+                                    entrenamientomod$CLASE=="Choque " ~ "Choque",
+                                    entrenamientomod$CLASE=="Choque y Atropello" ~ "Choque con Atropello",
+                                    TRUE ~ "Otros")
+entrenamientomod$CLASE<-as.factor(entrenamientomod$CLASE)
+
+####gravedad 
+entrenamientomod$GRAVEDAD <-case_when( entrenamientomod$GRAVEDAD=="HERIDO" ~ "HERIDO",
+                                       entrenamientomod$GRAVEDAD=="MUERTO" ~ "MUERTO",
+                                       entrenamientomod$GRAVEDAD=="SOLO DA&#209OS" ~ "SOLO_DANOS",
+                                       TRUE ~ "raro")
+entrenamientomod$GRAVEDAD<-as.factor(entrenamientomod$GRAVEDAD)
+
+#####tramo_de_via
+entrenamientomod$DISENO <-case_when( entrenamientomod$DISENO=="Ciclo Ruta" ~ "Ciclo Ruta",
+                                     entrenamientomod$DISENO=="Glorieta" ~ "Glorieta",
+                                     entrenamientomod$DISENO=="Choque" ~ "Choque",
+                                     entrenamientomod$DISENO=="Interseccion" ~ "Interseccion",
+                                     entrenamientomod$DISENO=="Lote o Predio" ~ "Lote o Predio",
+                                     entrenamientomod$DISENO=="Paso a Nivel" ~ "Paso a Nivel",
+                                     entrenamientomod$DISENO=="Paso Elevado" ~ "Paso Elevado",
+                                     entrenamientomod$DISENO=="Paso Inferior" ~ "Paso Inferior",
+                                     entrenamientomod$DISENO=="Puente" ~ "Puente",
+                                     entrenamientomod$DISENO=="Tramo de via" ~ "Tramo de via",
+                                     entrenamientomod$DISENO=="Tunel" ~ "Tunel",
+                                     entrenamientomod$DISENO=="Via peatonal" ~ "Via peatonal",
+                                     TRUE ~ "Otros")
+entrenamientomod$DISENO<-as.factor(entrenamientomod$DISENO)
+
+##### comuna
+entrenamientomod$COMUNA <-case_when( entrenamientomod$COMUNA=="Aranjuez" ~ "Aranjuez",
+                                     entrenamientomod$COMUNA=="BelÃ©n" ~ "Belen",
+                                     entrenamientomod$COMUNA=="Buenos Aires" ~ "Buenos Aires",
+                                     entrenamientomod$COMUNA=="Castilla" ~ "Castilla",
+                                     entrenamientomod$COMUNA=="Corregimiento de Altavista" ~ "Corregimiento de Altavista",
+                                     entrenamientomod$COMUNA=="Corregimiento de San Antonio de Prado" ~ "Corregimiento de San Antonio de Prado",
+                                     entrenamientomod$COMUNA=="Corregimiento de San CristÃ³bal" ~ "san cristobal",
+                                     entrenamientomod$COMUNA=="Corregimiento de Santa Elena" ~ "Corregimiento de Santa Elena",
+                                     entrenamientomod$COMUNA=="Doce de Octubre" ~ "Doce de Octubre",
+                                     entrenamientomod$COMUNA=="El Poblado" ~ "El Poblado",
+                                     entrenamientomod$COMUNA=="La AmÃ©rica" ~ "La America",
+                                     entrenamientomod$COMUNA=="La Candelaria" ~ "La Candelaria",
+                                     entrenamientomod$COMUNA=="Laureles Estadio" ~ "Laureles",
+                                     entrenamientomod$COMUNA=="Manrique" ~ "Manrique",
+                                     entrenamientomod$COMUNA=="Popular" ~ "Popular",
+                                     entrenamientomod$COMUNA=="Robledo" ~ "Robledo",
+                                     entrenamientomod$COMUNA=="San Javier" ~ "San Javier",
+                                     entrenamientomod$COMUNA=="Santa Cruz" ~ "Santa Cruz",
+                                     entrenamientomod$COMUNA=="Villa Hermosa" ~ "Villa Hermosa",
+                                     entrenamientomod$COMUNA=="Corregimiento de San SebastiÃ¡n de Palmitas" ~ "palmitas",
+                                     entrenamientomod$COMUNA=="Altavista" ~ "Altavista",
+                                     entrenamientomod$COMUNA=="AndalucÃ???a" ~ "Andalucia",
+                                     entrenamientomod$COMUNA=="Bolivariana" ~ "Bolivariana",
+                                     entrenamientomod$COMUNA=="Boston" ~ "Boston",
+                                     entrenamientomod$COMUNA=="Cabecera San Antonio de Prado" ~ "Corregimiento de San Antonio de Prado",
+                                     entrenamientomod$COMUNA=="Calasanz" ~ "Calasanz",
+                                     entrenamientomod$COMUNA=="Calle Nueva" ~ "Calle Nueva",
+                                     entrenamientomod$COMUNA=="Campo Amor" ~ "Campo Amor",
+                                     entrenamientomod$COMUNA=="Campo ValdÃ©s No. 1" ~ "Campo valdes",
+                                     entrenamientomod$COMUNA=="Campo ValdÃ©s No. 2" ~ "Campo valdes",
+                                     entrenamientomod$COMUNA=="Caribe" ~ "Caribe",
+                                     entrenamientomod$COMUNA=="Cerro Nutibara" ~ "Cerro Nutibara",
+                                     entrenamientomod$COMUNA=="CorazÃ³n de JesÃºs" ~ "Corazon de Jesus",
+                                     entrenamientomod$COMUNA=="Cristo Rey" ~ "Cristo Rey",
+                                     entrenamientomod$COMUNA=="El Chagualo" ~ "El Chagualo",
+                                     entrenamientomod$COMUNA=="El Raizal" ~ "El Raizal",
+                                     entrenamientomod$COMUNA=="FÃ¡tima" ~ "fatima",
+                                     entrenamientomod$COMUNA=="Girardot" ~ "Girardot",
+                                     entrenamientomod$COMUNA=="Guayaquil" ~ "Guayaquil",
+                                     entrenamientomod$COMUNA=="HÃ©ctor Abad GÃ³mez" ~ "Hecthor Abad Gomez",
+                                     entrenamientomod$COMUNA=="JesÃºs Nazareno" ~ "Jesus Nazareno",
+                                     entrenamientomod$COMUNA=="La Alpujarra" ~ "La Alpujarra",
+                                     entrenamientomod$COMUNA=="La Floresta" ~ "La Floresta",
+                                     entrenamientomod$COMUNA=="La Rosa" ~ "La Rosa",
+                                     entrenamientomod$COMUNA=="Las Esmeraldas" ~ "Las Esmeraldas",
+                                     entrenamientomod$COMUNA=="Las Palmas" ~ "Las Palmas",
+                                     entrenamientomod$COMUNA=="Laureles" ~ "Laureles",
+                                     entrenamientomod$COMUNA=="Los Conquistadores" ~ "Los Conquistadores",
+                                     entrenamientomod$COMUNA=="Los Mangos" ~ "Los Mangos",
+                                     entrenamientomod$COMUNA=="Manila" ~ "Manila",
+                                     entrenamientomod$COMUNA=="Moravia" ~ "Moravia",
+                                     entrenamientomod$COMUNA=="Naranjal" ~ "Naranjal",
+                                     entrenamientomod$COMUNA=="Patio Bonito" ~ "Patio Bonito",
+                                     entrenamientomod$COMUNA=="Perpetuo Socorro" ~ "Perpetuo Socorro",
+                                     entrenamientomod$COMUNA=="Rosales" ~ "Rosales",
+                                     entrenamientomod$COMUNA=="Suramericana" ~ "Suramericana",
+                                     entrenamientomod$COMUNA=="Toscana" ~ "Toscana",
+                                     entrenamientomod$COMUNA=="Veinte de Julio" ~ "Veinte de Julio",
+                                     TRUE ~ "Otros")
+entrenamientomod$COMUNA<-as.factor(entrenamientomod$COMUNA)
+```
+
+
+```{r echo=FALSE}
+####Se define el conjunto de datos de entrenamiento con las variables de interés.
+entrenamientomod1<-entrenamientomod[,-c(1,2,3,4,5,6,8,10,11,12,13,20,21,22,23,24)]
+```
+
+
+```{r echo=FALSE}
+####datimp
+a1<-data.frame(ftable(entrenamientomod1$BARRIO,entrenamientomod1$GRAVEDAD))
+a2<-data.frame(ftable(entrenamientomod1$BARRIO,entrenamientomod1$CLASE))
+a3<-data.frame(ftable(entrenamientomod1$BARRIO,entrenamientomod1$MES))
+a4<-data.frame(ftable(entrenamientomod1$BARRIO,entrenamientomod1$DIA_NOMBRE))
+a5<-data.frame(ftable(entrenamientomod1$BARRIO,entrenamientomod1$DISENO))
+a6<-data.frame(ftable(entrenamientomod1$BARRIO,entrenamientomod1$DIA))
+
+####datspread
+a1t<-spread(a1,Var2,Freq)
+a2t<-spread(a2,Var2,Freq)
+a3t<-spread(a3,Var2,Freq)
+a4t<-spread(a4,Var2,Freq)
+a5t<-spread(a5,Var2,Freq)
+a6t<-spread(a6,Var2,Freq)
+
+base_lista1<-merge(a1t,a2t,by="Var1",all.x = TRUE)
+base_lista2<-merge(base_lista1,a3t,by="Var1",all.x = TRUE)
+base_lista3<-merge(base_lista2,a4t,by="Var1",all.x = TRUE)
+base_lista4<-merge(base_lista3,a5t,by="Var1",all.x = TRUE)
+base_final<-merge(base_lista4,a6t,by="Var1",all.x = TRUE)
+```
+
+
+
+Del siguiente gráfico se puede observar que el numero de clusters adecuado es 5.
+
+```{r echo=FALSE}
+### numero de cluster
+base_final<-base_final[-c(1,2,3,4),]
+base_final->seg
+seg<-na.omit(seg)
+seg<-seg[,-c(1)]
+seg<-na.omit(seg)
+
+set.seed(20200604)
+wss<-(nrow(seg)-1)*sum(apply(seg,2,var))
+for (i in 1:35) wss[i] <- sum(kmeans(seg,centers = i)$withinss)
+plot(1:35, wss, type="b", xlab="# de Centroides k",ylab="wcss")
+
+fit1<-kmeans(seg,5)
+car_fit1_mean<-aggregate(seg, by = list(fit1$cluster), FUN = mean)
+car_fit1_sd<-aggregate(seg, by = list(fit1$cluster), FUN = sd)
+```
+
+
+Este gráfico muestra la distribución de los barrios por cluster. 
+
+
+```{r echo=FALSE}
+
+#### asignacion de datos al cluster
+seg1<-data.frame(seg,fit1$cluster)
+
+###### graficos iniciales
+par(mar=c(5,4,6,2))
+height<-table(fit1$cluster)
+mp<-barplot(height,main = "Distribucion barrios")
+text(mp,height,labels=format(height,2),pos=1,cex = 0.9)
+
+#plotcluster(seg1,fit1$cluster)
+id_cluster<-as.data.frame(fit1$cluster)
+
+Base<-cbind(base_final,id_cluster)
+Base<-Base[,c(1,74)]
+names (Base)[1] <- "BARRIO"
+names (Base)[2] <- "CLUSTER"
+```
+
+Después de ejecutar el agrupamiento con los 5 cluster se obtiene que el grupo 1 está conformado por los barrios de menor accidentalidad, seguido por el grupo 3, el grupo 5, el grupo 2 y finalmente el 4 que está conformado por los barrios con mas casos de accidentes.
+
+
+# **3. Predicción**
+
+Esta basada en un modelo predictivo bajo la metodología de Random Forest, el cual presenta un MSE más favorable en comparación a las otras metodologías de prueba como lo fueron SMV, Redes neuronales y un modelo GLM (poisson). El modelo se entrenó con los años de accidentabilidad de 2014 a 2017, tomando las variables de clase de accidente, día de la semana, mes del accidente, diseño de la via y se agregó la variable de fechas especiales. Al final se elige el modelo con menor MSE de 19.3, lo que quiere decir que se está equivocando en promedio en 19 accidentes.
+
+
+La variable fecha especial se creó como una variable indicadora donde es 1 si es una fecha especial (si ocurre alguno de estos eventos: Festivo, Semana Santa, Día de la Madre, Día del Padre, Feria de Flores, Amor y Amistad, Hallowen, Quincena, Alborada, Velitas, Navidad y Fin de Año) y 0 si no es fecha especial. 
+
+
+```{r echo=FALSE, message=FALSE}
+colnames(fechaEspecial) <- c("FECHA","ESPECIAL")
+
+fechaEspecial<-fechaEspecial[,c("FECHA", "ESPECIAL")]
+fechaEspecial<-na.omit(fechaEspecial)
+
+df <- inner_join(entrenamientomod,fechaEspecial,by ="FECHA")
+
+
+columnas <- c('DIA','DIA_NOMBRE','MES','CLASE','DISENO','ESPECIAL','PERIODO')
+
+df <- df[,columnas] 
+
+tabla <- 
+df %>% group_by(DIA,DIA_NOMBRE,MES,CLASE,DISENO, ESPECIAL)%>% summarise(conteo=n())
+
+
+##################################################
+####Cambios sobre 2018
+D2018$DIA_NOMBRE <-case_when( D2018$DIA_NOMBRE=="LUNES    " ~ "LUNES",
+                              D2018$DIA_NOMBRE=="MARTES   " ~ "MARTES",
+                              D2018$DIA_NOMBRE=="MIÃ???RCOLES" ~ "MIERCOLES",
+                              D2018$DIA_NOMBRE=="JUEVES   " ~ "JUEVES",
+                              D2018$DIA_NOMBRE=="VIERNES  " ~ "VIERNES",
+                              D2018$DIA_NOMBRE=="SÃ\u0081BADO   " ~ "SABADO",
+                              D2018$DIA_NOMBRE=="DOMINGO  " ~ "DOMINGO",
+                              TRUE ~ "raro")
+
+#Nombre del mes 
+D2018$MES <-case_when( D2018$MES=="1" ~ "ENERO",
+                       D2018$MES=="2" ~ "FEBRERO",
+                       D2018$MES=="3" ~ "MARZO",
+                       D2018$MES=="4" ~ "ABRIL",
+                       D2018$MES=="5" ~ "MAYO",
+                       D2018$MES=="6" ~ "JUNI",
+                       D2018$MES=="7" ~ "JULIO",
+                       D2018$MES=="8" ~ "AGOSTO",
+                       D2018$MES=="9" ~ "SEPTIEMBRE",
+                       D2018$MES=="10" ~ "OCTUBRE",
+                       D2018$MES=="11" ~ "NOVIEMBRE",
+                       D2018$MES=="12" ~ "DICIEMBRE",
+                       TRUE ~ "raro")
+
+
+######Clase
+D2018$CLASE <-case_when( D2018$CLASE=="Atropello" ~ "Atropello",
+                         D2018$CLASE=="CaÃ???da de Ocupante" ~ "Caida de Ocupante",
+                         D2018$CLASE=="Choque" ~ "Choque",
+                         D2018$CLASE=="Incendio" ~ "Incendio",
+                         D2018$CLASE=="Otro" ~ "Otros",
+                         D2018$CLASE=="Volcamiento" ~ "Volcamiento",
+                         D2018$CLASE=="Caida de Ocupante" ~ "Caida de Ocupante",
+                         D2018$CLASE=="Caida Ocupante" ~ "Caida de Ocupante",
+                         D2018$CLASE=="CaÃ???da Ocupante" ~ "Caida de Ocupante",
+                         D2018$CLASE=="Choque " ~ "Choque",
+                         D2018$CLASE=="Choque y Atropello" ~ "Otros",
+                         TRUE ~ "Otros")
+
+
+####Gravedad 
+D2018$GRAVEDAD <-case_when( D2018$GRAVEDAD=="HERIDO" ~ "HERIDO",
+                            D2018$GRAVEDAD=="MUERTO" ~ "MUERTO",
+                            D2018$GRAVEDAD=="SOLO DAÃ'OS" ~ "SOLO_DANOS",
+                            TRUE ~ "raro")
+
+
+#####Tramo_de_via
+D2018$DISENO <-case_when( D2018$DISENO=="Ciclo Ruta" ~ "Ciclo Ruta",
+                          D2018$DISENO=="Glorieta" ~ "Glorieta",
+                          D2018$DISENO=="Choque" ~ "Choque",
+                          D2018$DISENO=="Interseccion" ~ "Interseccion",
+                          D2018$DISENO=="Lote o Predio" ~ "Lote o Predio",
+                          D2018$DISENO=="Paso a Nivel" ~ "Paso a Nivel",
+                          D2018$DISENO=="Paso Elevado" ~ "Paso Elevado",
+                          D2018$DISENO=="Paso Inferior" ~ "Paso Inferior",
+                          D2018$DISENO=="Puente" ~ "Puente",
+                          D2018$DISENO=="Tramo de via" ~ "Tramo de via",
+                          D2018$DISENO=="Tunel" ~ "Tunel",
+                          D2018$DISENO=="Via peatonal" ~ "Via peatonal",
+                          TRUE ~ "Otros")
+
+df_2018 <- inner_join(D2018,fechaEspecial,by ="FECHA")
+
+columnas <- c('DIA','DIA_NOMBRE','MES','CLASE','DISENO','ESPECIAL')
+
+df_2018 <- df_2018[,columnas] 
+
+tabla_2018 <- 
+  df_2018 %>% group_by(DIA,DIA_NOMBRE,MES,CLASE,DISENO, ESPECIAL)%>% summarise(conteo=n())
+###########otros cambios entrenamiento
+entrenamientofin<-as.data.frame(tabla)
+entrenamientofin$CLASE <-case_when( entrenamientofin$CLASE=="Atropello" ~ "Atropello",
+                                    entrenamientofin$CLASE=="CaÃ???da de Ocupante" ~ "Caida de Ocupante",
+                                    entrenamientofin$CLASE=="Choque" ~ "Choque",
+                                    entrenamientofin$CLASE=="Incendio" ~ "Otros",
+                                    entrenamientofin$CLASE=="Otro" ~ "Otros",
+                                    entrenamientofin$CLASE=="Volcamiento" ~ "Volcamiento",
+                                    entrenamientofin$CLASE=="Caida de Ocupante" ~ "Caida de Ocupante",
+                                    entrenamientofin$CLASE=="Caida Ocupante" ~ "Caida de Ocupante",
+                                    entrenamientofin$CLASE=="CaÃ???da Ocupante" ~ "Caida de Ocupante",
+                                    entrenamientofin$CLASE=="Choque " ~ "Choque",
+                                    entrenamientofin$CLASE=="Choque y Atropello" ~ "Otros",
+                                    TRUE ~ "Otros")
+
+entrenamientofin$DIA<-as.factor(entrenamientofin$DIA)
+entrenamientofin$DIA_NOMBRE<-as.factor(entrenamientofin$DIA_NOMBRE)
+entrenamientofin$MES<-as.factor(entrenamientofin$MES)
+entrenamientofin$CLASE<-as.factor(entrenamientofin$CLASE)
+entrenamientofin$DISENO<-as.factor(entrenamientofin$DISENO)
+entrenamientofin$ESPECIAL<-as.factor(entrenamientofin$ESPECIAL)
+entrenamientofin$conteo<-as.integer(entrenamientofin$conteo)
+
+###########otros cambios validacion
+validacion<-as.data.frame(tabla_2018)
+validacion<-as.data.frame(tabla)
+validacion$CLASE <-case_when( validacion$CLASE=="Atropello" ~ "Atropello",
+                              validacion$CLASE=="CaÃ???da de Ocupante" ~ "Caida de Ocupante",
+                              validacion$CLASE=="Choque" ~ "Choque",
+                              validacion$CLASE=="Incendio" ~ "Otros",
+                              validacion$CLASE=="Otro" ~ "Otros",
+                              validacion$CLASE=="Volcamiento" ~ "Volcamiento",
+                              validacion$CLASE=="Caida de Ocupante" ~ "Caida de Ocupante",
+                              validacion$CLASE=="Caida Ocupante" ~ "Caida de Ocupante",
+                              validacion$CLASE=="CaÃ???da Ocupante" ~ "Caida de Ocupante",
+                              validacion$CLASE=="Choque " ~ "Choque",
+                              validacion$CLASE=="Choque y Atropello" ~ "Otros",
+                                    TRUE ~ "Otros")
+
+validacion$DIA<-as.factor(validacion$DIA)
+validacion$DIA_NOMBRE<-as.factor(validacion$DIA_NOMBRE)
+validacion$MES<-as.factor(validacion$MES)
+validacion$CLASE<-as.factor(validacion$CLASE)
+validacion$DISENO<-as.factor(validacion$DISENO)
+validacion$ESPECIAL<-as.factor(validacion$ESPECIAL)
+validacion$conteo<-as.integer(validacion$conteo)
+
+```
+
+**Random Forest**
+
+Se obtiene un MSE de 19.6
+
+```{r echo=TRUE}
+#####modelo1
+set.seed(88)
+modelo1<-randomForest(conteo~.,data =entrenamientofin)
+
+entrenamientomod$MES<-as.factor(entrenamientomod$MES)
+
+
+prediccion1<-predict(modelo1,validacion)
+
+resultados1<-data.frame(validacion,prediccion1,2018)
+names(resultados1)[9] = "PERIODO"
+
+  
+resultados1$MES_NUMERO<-case_when( resultados1$MES=="ENERO" ~ "1",
+                             resultados1$MES=="FEBRERO" ~ "2",
+                             resultados1$MES=="MARZO" ~ "3",
+                             resultados1$MES=="ABRIL" ~ "4",
+                             resultados1$MES=="MAYO" ~ "5",
+                             resultados1$MES=="JUNIO" ~ "6",
+                             resultados1$MES=="JULIO" ~ "7",
+                             resultados1$MES=="AGOSTO" ~ "8",
+                             resultados1$MES=="SEPTIEMBRE" ~ "9",
+                             resultados1$MES=="OCTUBRE" ~ "10",
+                             resultados1$MES=="NOVIEMBRE" ~ "11",
+                             resultados1$MES=="DICIEMBRE" ~ "12",
+                             TRUE ~ "raro") 
+  
+
+
+prubmse<-((resultados1$conteo)-(resultados1$prediccion1))^2
+prubmse<-as.vector(prubmse)
+mean(prubmse)
+```
+
+
+
+**SVM**
+
+Se obtiene un MSE de 194.29 
+
+```{r echo=TRUE}
+#######modelo2
+
+modelo2<-svm(conteo~.,data =entrenamientofin,kernel="linear",cost=10,scale = FALSE)
+prediccion2<-predict(modelo2,validacion)
+resultados2<-data.frame(validacion,prediccion2)
+prubmse2<-((resultados2$prediccion2)-(resultados2$conteo))^2
+prubmse2<-as.vector(prubmse2)
+mean(prubmse2)
+```
+**glm**
+
+Se obtiene un MSE de 134.89
+
+```{r echo=TRUE}
+########modelo3
+
+modelo3<-glm(conteo~.,data =entrenamientofin)
+prediccion3<-predict(modelo3,validacion)
+resultados3<-data.frame(validacion,prediccion3)
+prubmse3<-((resultados3$prediccion3)-(resultados3$conteo))^2
+prubmse3<-as.vector(prubmse3)
+mean(prubmse3)
+```
+**Red neuronal**
+
+Se usó una red neuronal con 5 capas y cada capa con 5 neuronas con la función de activación rectifier.
+
+Se obtiene un MSE de 40.3 
+
+```{r echo=TRUE}
+########modelo4
+#h2o.init(nthreads = -1)
+#classifier = h2o.deeplearning(y = 'conteo',
+                              #training_frame = as.h2o(entrenamientofin),
+                              #activation = 'Rectifier',
+                              #hidden = c(5, 5),
+                              #epochs = 100,
+                              #train_samples_per_iteration = -2)
+#modelo4<-neuralnet(conteo~.,data =entrenamientofin)
+#prob_pred <- h2o.predict(classifier, newdata = as.h2o(validacion))
+
+#prueba1<-as.data.frame(prob_pred)
+#resultados4<-data.frame(validacion,prueba1$predict)
+#prubmse4<-((resultados4$prueba1.predict)-(resultados4$conteo))^2
+#prubmse4<-as.vector(prubmse4)
+#mean(prubmse4)
+```
